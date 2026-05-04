@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "Session": {
+      "title": "Session",
+      "description": "A collaborative session room",
+      "type": "object",
+      "properties": {
+        "files": { 
+          "type": "object",
+          "description": "Map of filename to content and language"
+        },
+        "activeFile": { "type": "string" },
+        "canvas": { 
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "List of drawing strokes/objects"
+        },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "ownerId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A chat message in a session",
+      "type": "object",
+      "properties": {
+        "sender": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sender", "text", "timestamp"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] }
+      }
+    }
+  },
+  "firestore": {
+    "/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Session rooms"
+    },
+    "/sessions/{sessionId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a session"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User metadata"
+    }
+  }
+}

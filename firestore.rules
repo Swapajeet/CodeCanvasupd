@@ -1,0 +1,131 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 🔐 Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 🔧 Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+          ||
+          (request.auth.token.email == "jamdadesanskar14@gmail.com" &&
+           request.auth.token.email_verified == true)
+        );
+    }
+
+    function isMember(sessionId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/sessions/$(sessionId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/sessions/$(sessionId)).data.members;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // 🟢 Health Check
+    match /_health_check/{id} {
+      allow write: if isValidId(id) && incoming().timestamp is timestamp;
+      allow read: if true;
+    }
+
+    // 🚀 Sessions (Rooms)
+    match /sessions/{sessionId} {
+
+      // ✅ Allow authenticated users to read (prevents join deadlock)
+      allow read: if isAuthenticated();
+
+      // Allow single doc check without auth (optional)
+      allow get: if true;
+
+      // ✅ Create new session
+      allow create: if isAuthenticated() && isValidSession(incoming());
+
+      // ✅ Update session
+      allow update: if isAuthenticated() && (
+        // Owner full control
+        request.auth.uid == resource.data.ownerId ||
+
+        // Joining room (safe members update)
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['members', 'updatedAt']) &&
+          incoming().members.hasAll(existing().members) &&
+          request.auth.uid in incoming().members
+        ) ||
+
+        // Member updating allowed fields
+        isMember(sessionId) ||
+
+        isAdmin()
+      );
+
+      // ✅ Delete session
+      allow delete: if isAuthenticated() &&
+        (resource.data.ownerId == request.auth.uid || isAdmin());
+
+      // 💬 Messages Subcollection
+      match /messages/{messageId} {
+
+        // Only members can read messages
+        allow read: if isMember(sessionId) || isAdmin();
+
+        // Only members can send messages
+        allow create: if isMember(sessionId) && isValidMessage(incoming());
+      }
+    }
+
+    // 👤 Users
+    match /users/{userId} {
+
+      // Auth users can read profiles
+      allow read: if isAuthenticated();
+
+      // Only owner can create/update
+      allow create, update: if isOwner(userId) && isValidUser(incoming());
+    }
+
+    // 🔍 Validation Functions
+
+    function isValidSession(data) {
+      return data.keys().hasAll(['files', 'activeFile', 'updatedAt'])
+        && data.files is map
+        && data.activeFile is string
+        && (data.get('canvas', []) is list)
+        && (data.get('ownerId', '') is string || data.ownerId == null)
+        && (data.get('members', []) is list)
+        && data.updatedAt is timestamp; // ✅ FIXED (removed strict equality)
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['sender', 'text', 'timestamp'])
+        && data.sender is string
+        && data.text is string && data.text.size() <= 5000
+        && data.timestamp is timestamp; // ✅ FIXED
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAny(['displayName', 'photoURL', 'role'])
+        && (data.get('displayName', '') is string)
+        && (data.get('photoURL', '') is string)
+        && (data.get('role', 'user') in ['user', 'admin']);
+    }
+  }
+}
